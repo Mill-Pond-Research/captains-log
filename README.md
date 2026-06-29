@@ -6,36 +6,56 @@ An 80s-inspired voice note dictation and transcription application that provides
 
 ## Features
 
-- 🎙️ **Voice Recording**
-  - High-quality audio recording with intuitive controls
-  - Visual feedback with retro-style VU meter
-  - Background recording support
-  - Adjustable input levels
+- **Segmented Voice Recording**
+  - Start, pause, and resume recording with a single cycle button
+  - Each pause sends the current audio segment for transcription immediately
+  - Resume works instantly — transcription runs asynchronously in the background
+  - Visual feedback with retro-style VU meter (freezes during pause)
+  - Spacebar hold-to-record support
+  - Countdown timer with pause-aware elapsed-time tracking
 
-- 📝 **Smart Transcription**
-  - Automatic voice-to-text conversion
-  - Support for multiple languages
-  - Offline transcription capabilities
+- **Groq Whisper Transcription**
+  - Automatic voice-to-text via Groq's `whisper-large-v3-turbo` API
+  - Per-segment transcription with timestamp-ordered results
+  - Confidence scores derived from segment log-probabilities
+  - Support for multiple languages (en, es, fr, de)
+  - Configurable model selection (turbo vs. accurate)
 
-- 🕹️ **Retro UI/UX**
-  - Authentic 80s computer aesthetic
-  - Monochrome/limited color schemes
-  - Classic terminal-style interface
-  - Period-appropriate sound effects
-  - Command-line interface for power users
+- **Note Management**
+  - Create, edit, and delete log entries
+  - Folder organization and tagging system
+  - Search with keyword highlighting
+  - Note detail modal with full transcription view
+  - Edit notes with a textarea (preserves original segments)
 
-- 🔒 **Security & Privacy**
-  - Local-first storage
-  - Optional encrypted cloud sync
-  - GDPR and CCPA compliant
-  - Clear privacy controls
+- **Audio Persistence & Playback**
+  - Recorded segments stored in IndexedDB for playback
+  - Audio playback directly within the note detail modal
+  - Configurable audio persistence toggle in settings
+
+- **Export & Sharing**
+  - Export notes as `.txt` files
+  - Copy note text to clipboard with retro "TRANSMIT" animation
+
+- **Retro UI/UX**
+  - Authentic 80s computer aesthetic with CRT effects and scanlines
+  - Green, amber, and white terminal color schemes
+  - Period-appropriate sound effects (toggleable)
+  - Adjustable font size (14–24px)
+  - Classic terminal-style interface with VT323 monospace font
+
+- **Privacy**
+  - Local-first: all data stored in localStorage and IndexedDB
+  - No cloud sync — your recordings stay on your device
+  - API key stored locally in `.env`
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js (v14 or higher)
-- Modern web browser (Chrome, Firefox, Safari)
+- Node.js (v18 or higher)
+- A [Groq API key](https://console.groq.com/) for speech-to-text
+- Modern web browser (Chrome, Firefox, Safari, Edge)
 
 ### Installation
 
@@ -50,73 +70,63 @@ cd captains-log
 npm install
 ```
 
-3. Start the development server:
-```powershell
-npm start
+3. Create a `.env` file with your Groq API key:
+```
+VITE_GROQ_API_KEY=your_groq_api_key_here
 ```
 
-The application will open in your default browser at `http://localhost:3000`.
+4. Start the development server:
+```powershell
+npm run dev
+```
+
+The application will open in your default browser at `http://localhost:5173`.
 
 ### Available Scripts
 
-- `npm start` - Runs the app in development mode
-- `npm test` - Launches the test runner
-- `npm run build` - Builds the app for production
-- `npm run eject` - Ejects from Create React App (one-way operation)
+- `npm run dev` — Runs the app in development mode with Vite
+- `npm run build` — Type-checks and builds the app for production
+- `npm run preview` — Previews the production build locally
+- `npm test` — Runs the test suite (Vitest)
+- `npm run test:watch` — Runs tests in watch mode
 
 ## Technology Stack
 
-- Frontend: React
-- Speech Recognition: Web Speech API
-- Styling: CSS Modules
+- Frontend: React 19
+- Build Tool: Vite 7
+- Speech-to-Text: Groq Whisper API (`whisper-large-v3-turbo`)
+- Audio Capture: MediaRecorder API
+- Audio Storage: IndexedDB
+- Data Storage: localStorage
+- Styling: CSS Modules with CRT/retro effects
 - State Management: React Hooks
+- Testing: Vitest + Testing Library
 
-## Contributing
+## Configuration
 
-We welcome contributions! Please read our contributing guidelines before submitting pull requests.
+Settings are accessible via the **CONFIGURE** view in the app header:
 
-## License
+| Setting | Options | Description |
+|---------|---------|-------------|
+| Language | en, es, fr, de | Transcription language sent to Groq |
+| Model | whisper-large-v3-turbo, whisper-large-v3 | Speed vs. accuracy tradeoff |
+| Sound Effects | ON / OFF | Toggle retro beep/startup sounds |
+| Font Size | 14–24px | Adjustable base font size |
+| Audio Persistence | ON / OFF | Store recorded segments in IndexedDB for playback |
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Settings persist in localStorage and apply immediately.
 
-## Acknowledgments
+## Recording Flow
 
-- Inspired by 1980s computer systems
-- Built with modern web technologies
-- Designed for privacy and efficiency
-
-## Support
-
-For support, please open an issue in the GitHub repository or contact our support team.
-
-## Deployment
-
-### Building for Production
-
-1. Create a production build:
-```powershell
-npm run build
 ```
-
-2. The build folder will contain production-ready files that can be served by any static hosting service.
-
-### Deployment Options
-
-1. **Static Hosting (Recommended)**
-   - Netlify
-   - Vercel
-   - GitHub Pages
-   - AWS S3 + CloudFront
-
-2. **Traditional Hosting**
-   - Apache
-   - Nginx
-   - IIS
-
-### Environment Setup
-1. Copy `.env.example` to `.env`
-2. Update the environment variables as needed
-3. Rebuild the application
+START RECORDING → click → recording begins, button becomes PAUSE
+PAUSE → click → stops current segment, sends audio to Groq,
+         transcription appears when ready, button becomes RESUME
+RESUME → click → starts new segment, button becomes PAUSE
+SAVE LOG → if recording: sends final segment, saves all results as a note
+CLEAR LOG → stops recording, discards all transcription and audio
+Timer expiry / spacebar release → sends final segment, stops recording
+```
 
 ## Browser Compatibility
 
@@ -126,7 +136,7 @@ Tested and supported in:
 - Safari (latest 2 versions)
 - Edge (latest 3 versions)
 
-Note: Speech recognition features may vary by browser.
+Note: MediaRecorder and IndexedDB are required. All modern browsers support these APIs.
 
 ## Troubleshooting
 
@@ -135,16 +145,27 @@ Note: Speech recognition features may vary by browser.
 1. **Microphone Access**
    - Ensure browser has microphone permissions
    - Check system microphone settings
-   - Verify SSL if running in production
+   - Verify HTTPS if running in production (required for getUserMedia)
 
 2. **Transcription Issues**
-   - Confirm language settings
-   - Check internet connection for cloud features
-   - Verify Web Speech API browser support
+   - Confirm `VITE_GROQ_API_KEY` is set in your `.env` file
+   - Check internet connection (Groq API requires network access)
+   - Very short segments (<10s) are still billed at the 10s minimum by Groq
 
 3. **Build Problems**
-   - Clear npm cache: `npm cache clean --force`
-   - Delete node_modules and reinstall
-   - Verify Node.js version
+   - Delete `node_modules` and reinstall: `rm -rf node_modules && npm install`
+   - Verify Node.js version: `node --version` (needs v18+)
 
-For more issues, please check our [Issues](https://github.com/technicalmonk/captains-log/issues) page.
+4. **No Sound Effects**
+   - Check the Sound Effects toggle in CONFIGURE settings
+   - AudioContext may be suspended until first user interaction (click anywhere)
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Inspired by 1980s computer systems
+- Speech-to-text powered by [Groq](https://groq.com/)
+- Built with modern web technologies

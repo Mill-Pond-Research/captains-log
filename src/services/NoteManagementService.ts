@@ -1,4 +1,4 @@
-import { TranscriptionResult } from './TranscriptionService';
+import type { TranscriptionResult } from './TranscriptionService';
 
 export interface Note {
   id: string;
@@ -8,6 +8,8 @@ export interface Note {
   folder: string;
   createdAt: number;
   updatedAt: number;
+  editedContent?: string;
+  audioIds?: string[];
 }
 
 export interface NoteFilter {
@@ -47,13 +49,14 @@ export class NoteManagementService {
     return `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  createNote(title: string, content: TranscriptionResult[], tags: string[] = [], folder: string = 'Main Memory'): Note {
+  createNote(title: string, content: TranscriptionResult[], tags: string[] = [], folder: string = 'Main Memory', audioIds: string[] = []): Note {
     const note: Note = {
       id: this.generateId(),
       title,
       content,
       tags,
       folder,
+      audioIds,
       createdAt: Date.now(),
       updatedAt: Date.now()
     };

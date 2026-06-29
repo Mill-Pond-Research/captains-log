@@ -2,24 +2,20 @@ import React, { useState } from 'react';
 import './App.css';
 import { TranscriptionPanel } from './components/TranscriptionPanel';
 import { NoteManagementPanel } from './components/NoteManagementPanel';
-import { Footer, ColorScheme, colorSchemes } from './components/Footer';
+import { SettingsPanel } from './components/SettingsPanel';
+import { Footer, colorSchemes } from './components/Footer';
+import type { ColorScheme } from './components/Footer';
 import styles from './styles/RetroEffects.module.css';
-import { Note } from './services/NoteManagementService';
 
 function App() {
   const [colorScheme, setColorScheme] = useState<ColorScheme>(colorSchemes[0]);
-  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
-  const [activeView, setActiveView] = useState<'transcription' | 'notes'>('transcription');
+  const [activeView, setActiveView] = useState<'transcription' | 'notes' | 'settings'>('transcription');
 
   const handleColorSchemeChange = (newScheme: ColorScheme) => {
     setColorScheme(newScheme);
     document.documentElement.style.setProperty('--text-color', newScheme.textColor);
     document.documentElement.style.setProperty('--background-color', newScheme.backgroundColor);
     document.documentElement.style.setProperty('--border-color', newScheme.borderColor);
-  };
-
-  const handleNoteSelect = (note: Note) => {
-    setSelectedNote(note);
   };
 
   return (
@@ -44,13 +40,21 @@ function App() {
           >
             VIEW LOGS
           </button>
+          <button
+            className={`${styles.viewButton} ${activeView === 'settings' ? styles.active : ''}`}
+            onClick={() => setActiveView('settings')}
+          >
+            CONFIGURE
+          </button>
         </div>
       </header>
       <main>
         {activeView === 'transcription' ? (
           <TranscriptionPanel />
+        ) : activeView === 'notes' ? (
+          <NoteManagementPanel />
         ) : (
-          <NoteManagementPanel onNoteSelect={handleNoteSelect} />
+          <SettingsPanel />
         )}
       </main>
       <Footer 

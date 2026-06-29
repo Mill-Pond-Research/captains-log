@@ -21,6 +21,7 @@
   overflow-y: auto;
   font-size: 1.2em;
   position: relative;
+  text-align: left;
   scrollbar-width: thin;
   scrollbar-color: var(--text-color) var(--background-color);
 }
@@ -240,6 +241,11 @@
 
 .statusText.processing {
   color: #00ff00;
+}
+
+.statusText.paused {
+  color: #ffb000;
+  animation: blink 1s infinite;
 }
 
 .statusText.ready {

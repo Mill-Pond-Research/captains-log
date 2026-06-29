@@ -152,9 +152,3 @@
 *   **Transcription:** Google Cloud Speech-to-Text, AWS Transcribe, or a self-hosted solution like Kaldi (for offline)
 *   **Database:** Realm (for local storage), Cloud Firestore (if cloud sync is used)
 *   **Audio Processing:** Libraries specific to iOS and Android platforms
-
-**Document Control**
-* Version 1.0
-* Author ILYA
-
-This PRD provides a solid foundation for developing the "Captain's Log" application. The 80's UI will be key to the success of the project.

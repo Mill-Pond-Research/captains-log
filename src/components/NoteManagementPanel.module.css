@@ -241,4 +241,24 @@
 .deleteButton:hover {
   background-color: color-mix(in srgb, #ff0000 20%, transparent);
   box-shadow: 0 0 8px #ff0000;
+}
+
+.highlight {
+  background-color: color-mix(in srgb, var(--text-color) 40%, transparent);
+  color: var(--background-color);
+}
+
+.notePreview {
+  margin: 0 0 10px 0;
+  font-size: 0.95em;
+  opacity: 0.85;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noteActions {
+  display: flex;
+  gap: 8px;
 } 

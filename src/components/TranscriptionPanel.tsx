@@ -1,92 +1,116 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranscription } from '../hooks/useTranscription';
+import { useSettings } from '../hooks/useSettings';
 import { SoundEffectsService } from '../services/SoundEffectsService';
 import styles from './TranscriptionPanel.module.css';
 import retroStyles from '../styles/RetroEffects.module.css';
 import GlitchEffect from './GlitchEffect';
 import { NoteManagementService } from '../services/NoteManagementService';
 
-interface TranscriptionPanelProps {
-  language?: string;
-}
-
-const MAX_RECORDING_TIME_SECONDS = 20; // 20 seconds
-const RED_WARNING_THRESHOLD_SECONDS = 5;
-const YELLOW_WARNING_THRESHOLD_SECONDS = 10;
+const MAX_RECORDING_TIME_SECONDS = 60;
+const RED_WARNING_THRESHOLD_SECONDS = 10;
+const YELLOW_WARNING_THRESHOLD_SECONDS = 20;
 
 const soundEffects = new SoundEffectsService();
 
-export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ language = 'en-US' }) => {
+export const TranscriptionPanel: React.FC = () => {
   const screenRef = useRef<HTMLDivElement>(null);
+  const { settings } = useSettings();
   const {
     isListening,
+    isTranscribing,
+    isPaused,
     isSupported,
     transcription,
+    signalStrength,
+    segmentAudioIds,
     startTranscription,
     stopTranscription,
+    pauseTranscription,
+    resumeTranscription,
     clearTranscription,
     error
   } = useTranscription();
 
-  const [signalStrength, setSignalStrength] = useState(0);
   const [isSpacebarPressed, setIsSpacebarPressed] = useState(false);
   const [isBooting, setIsBooting] = useState(true);
   const [timeRemaining, setTimeRemaining] = useState(MAX_RECORDING_TIME_SECONDS);
-  const [status, setStatus] = useState<'standby' | 'initializing' | 'scanning' | 'processing' | 'ready'>('standby');
+  const [status, setStatus] = useState<'standby' | 'initializing' | 'scanning' | 'processing' | 'paused' | 'ready'>('standby');
   const [noteTitle, setNoteTitle] = useState('');
   const [noteService] = useState(() => new NoteManagementService());
   const [isEditingTitle, setIsEditingTitle] = useState(false);
 
+  const accumulatedRef = useRef(0);
+  const segmentStartRef = useRef<number | null>(null);
+  const pendingSaveTitleRef = useRef<string | null>(null);
+
   useEffect(() => {
-    // Play startup sound and show boot animation
     soundEffects.playStartupSound();
-    setTimeout(() => {
+    const bootTimer = setTimeout(() => {
       setIsBooting(false);
     }, 3000);
+    return () => clearTimeout(bootTimer);
   }, []);
 
+  // Track total recorded time across pause/resume cycles (pauses excluded).
   useEffect(() => {
-    let timer: NodeJS.Timeout | null = null;
-    
-    if (isListening) {
-      setTimeRemaining(MAX_RECORDING_TIME_SECONDS);
-      timer = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            stopTranscription();
-            return MAX_RECORDING_TIME_SECONDS;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
+    if (isListening && !isPaused) {
+      segmentStartRef.current = Date.now();
+    } else if (isPaused && segmentStartRef.current !== null) {
+      accumulatedRef.current += Date.now() - segmentStartRef.current;
+      segmentStartRef.current = null;
+    } else if (!isListening) {
+      accumulatedRef.current = 0;
+      segmentStartRef.current = null;
       setTimeRemaining(MAX_RECORDING_TIME_SECONDS);
     }
+  }, [isListening, isPaused]);
 
-    return () => {
-      if (timer) {
-        clearInterval(timer);
+  // Countdown — freezes while paused, stops recording when time expires.
+  useEffect(() => {
+    if (!isListening) return;
+    const timer = setInterval(() => {
+      if (isPaused || segmentStartRef.current === null) return;
+      const elapsedMs = accumulatedRef.current + (Date.now() - segmentStartRef.current);
+      const remaining = Math.max(0, MAX_RECORDING_TIME_SECONDS - Math.ceil(elapsedMs / 1000));
+      setTimeRemaining(remaining);
+      if (remaining <= 0) {
+        stopTranscription();
       }
-    };
-  }, [isListening, stopTranscription]);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isListening, isPaused, stopTranscription]);
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    if (event.code === 'Space' && !event.repeat && !isSpacebarPressed && !isListening && !isEditingTitle) {
+    if (
+      event.code === 'Space' &&
+      !event.repeat &&
+      !isSpacebarPressed &&
+      !isListening &&
+      !isPaused &&
+      !isTranscribing &&
+      !isEditingTitle
+    ) {
       event.preventDefault();
       setIsSpacebarPressed(true);
       soundEffects.playBeep(1200, 100);
-      startTranscription({ language, continuous: true, interimResults: true });
+      void startTranscription({
+        language: settings.language,
+        model: settings.model,
+        continuous: true,
+        interimResults: true,
+      });
     }
-  }, [startTranscription, language, isSpacebarPressed, isListening, isEditingTitle]);
+  }, [startTranscription, isSpacebarPressed, isListening, isPaused, isTranscribing, isEditingTitle, settings.language, settings.model]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (event.code === 'Space') {
       event.preventDefault();
       setIsSpacebarPressed(false);
       soundEffects.playBeep(800, 100);
-      stopTranscription();
+      if (isListening || isPaused) stopTranscription();
     }
-  }, [stopTranscription]);
+  }, [stopTranscription, isListening, isPaused]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -98,39 +122,93 @@ export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ language
   }, [handleKeyDown, handleKeyUp]);
 
   useEffect(() => {
-    if (isListening) {
-      soundEffects.setupAudioAnalysis(setSignalStrength);
+    if (isPaused) {
+      setStatus('paused');
+    } else if (isTranscribing) {
+      setStatus('processing');
+    } else if (isListening) {
+      setStatus('initializing');
+      const initTimer = setTimeout(() => {
+        setStatus('scanning');
+      }, 1000);
+      return () => clearTimeout(initTimer);
+    } else if (isBooting) {
+      setStatus('initializing');
     } else {
-      soundEffects.stopAudioAnalysis();
-      setSignalStrength(0);
+      setStatus('ready');
+      const standbyTimer = setTimeout(() => {
+        setStatus('standby');
+      }, 1000);
+      return () => clearTimeout(standbyTimer);
     }
-  }, [isListening]);
+  }, [isListening, isPaused, isTranscribing, isBooting]);
 
-  const handleStart = () => {
-    soundEffects.playBeep(1200, 100);
-    startTranscription({ language, continuous: true, interimResults: true });
+  const handleCycle = () => {
+    if (!isListening && !isPaused) {
+      soundEffects.playBeep(1200, 100);
+      void startTranscription({
+        language: settings.language,
+        model: settings.model,
+        continuous: true,
+        interimResults: true,
+      });
+    } else if (isListening && !isPaused) {
+      soundEffects.playBeep(800, 100);
+      pauseTranscription();
+    } else if (isPaused) {
+      soundEffects.playBeep(1200, 100);
+      resumeTranscription();
+    }
   };
 
-  const handleStop = () => {
-    soundEffects.playBeep(800, 100);
-    stopTranscription();
-  };
+  const cycleLabel = !isListening && !isPaused
+    ? 'START RECORDING'
+    : isListening && !isPaused
+      ? 'PAUSE'
+      : 'RESUME';
 
   const handleClear = () => {
     soundEffects.playBeep(600, 100);
+    if (isListening || isPaused) stopTranscription();
     clearTranscription();
     setNoteTitle('');
+    pendingSaveTitleRef.current = null;
   };
 
-  const handleSaveNote = () => {
-    if (!transcription.length) return;
-    
-    const title = noteTitle.trim() || `Log Entry ${new Date().toLocaleString()}`;
-    noteService.createNote(title, transcription);
+  const commitSave = useCallback((title: string) => {
+    noteService.createNote(title, transcription, [], 'Main Memory', segmentAudioIds);
     soundEffects.playBeep(1000, 100);
     clearTranscription();
     setNoteTitle('');
+  }, [transcription, segmentAudioIds, noteService, clearTranscription]);
+
+  const handleSaveNote = () => {
+    if (!transcription.length) return;
+    const title = noteTitle.trim() || `Log Entry ${new Date().toLocaleString()}`;
+
+    if (isListening && !isPaused) {
+      // Actively recording: flush the final segment and defer the save until
+      // the session ends so the note includes the in-progress segment.
+      pendingSaveTitleRef.current = title;
+      stopTranscription();
+      return;
+    }
+
+    // Paused or idle: save now, then stop to release the microphone if active.
+    commitSave(title);
+    pendingSaveTitleRef.current = null;
+    if (isListening || isPaused) stopTranscription();
   };
+
+  // Perform a deferred save once the final segment has landed and the session
+  // has ended (stop() awaits the final transcription before emitting 'end').
+  useEffect(() => {
+    if (pendingSaveTitleRef.current && !isListening && !isTranscribing) {
+      const title = pendingSaveTitleRef.current;
+      pendingSaveTitleRef.current = null;
+      commitSave(title);
+    }
+  }, [isListening, isTranscribing, transcription, segmentAudioIds, commitSave]);
 
   useEffect(() => {
     if (screenRef.current) {
@@ -141,41 +219,23 @@ export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ language
     }
   }, [transcription]);
 
-  // Add status management effect
-  useEffect(() => {
-    if (isListening) {
-      // When starting to listen, go through initialization sequence
-      setStatus('initializing');
-      const initTimer = setTimeout(() => {
-        setStatus('scanning');
-        const scanTimer = setTimeout(() => {
-          setStatus('processing');
-        }, 1500);
-        return () => clearTimeout(scanTimer);
-      }, 1000);
-      return () => clearTimeout(initTimer);
-    } else if (isBooting) {
-      setStatus('initializing');
-    } else {
-      // When stopping, briefly show 'ready' then go to 'standby'
-      setStatus('ready');
-      const standbyTimer = setTimeout(() => {
-        setStatus('standby');
-      }, 1000);
-      return () => clearTimeout(standbyTimer);
-    }
-  }, [isListening, isBooting]);
-
   if (!isSupported) {
     return (
       <div className={`${styles.panel} ${retroStyles.retroContainer}`}>
-        <div className={retroStyles.glowText}>ERROR: SPEECH RECOGNITION NOT SUPPORTED ON THIS TERMINAL</div>
+        <div className={retroStyles.glowText}>
+          {error || 'ERROR: SPEECH RECOGNITION NOT SUPPORTED ON THIS TERMINAL'}
+        </div>
+        {!error && (
+          <div className={retroStyles.glowText} style={{ fontSize: '14px', marginTop: '8px' }}>
+            Set VITE_GROQ_API_KEY in your .env file to enable transcription.
+          </div>
+        )}
       </div>
     );
   }
 
   const getLatestTranscription = () => {
-    const formattedText = Array.isArray(transcription) 
+    const formattedText = Array.isArray(transcription)
       ? transcription
           .map(t => `[${new Date(t.timestamp).toLocaleTimeString()}] ${t.text}`)
           .join('\n')
@@ -184,7 +244,14 @@ export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ language
     return (
       <>
         {formattedText}
-        <span className={styles.cursorContainer}><span className={styles.cursor} /></span>
+        {isTranscribing && (
+          <span className={styles.cursorContainer}>
+            <span className={styles.cursor} /> TRANSCRIBING...
+          </span>
+        )}
+        {!isTranscribing && (
+          <span className={styles.cursorContainer}><span className={styles.cursor} /></span>
+        )}
       </>
     );
   };
@@ -206,7 +273,7 @@ export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ language
   };
 
   const getTimerClass = () => {
-    if (!isListening) return '';
+    if (!isListening && !isPaused) return '';
     if (timeRemaining <= RED_WARNING_THRESHOLD_SECONDS) return styles.redWarning;
     if (timeRemaining <= YELLOW_WARNING_THRESHOLD_SECONDS) return styles.yellowWarning;
     return styles.normalTime;
@@ -249,7 +316,7 @@ export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ language
           {getLatestTranscription()}
         </GlitchEffect>
       </div>
-      
+
       <div className={styles.controls}>
         <div className={styles.titleRow}>
           <input
@@ -270,18 +337,11 @@ export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ language
         </div>
         <div className={styles.buttonGroup}>
           <button
-            className={`${styles.button} ${isListening ? styles.active : ''} ${retroStyles.pixelated}`}
-            onClick={handleStart}
-            disabled={isListening || isEditingTitle}
+            className={`${styles.button} ${isListening || isPaused ? styles.active : ''} ${retroStyles.pixelated}`}
+            onClick={handleCycle}
+            disabled={isEditingTitle}
           >
-            START RECORDING
-          </button>
-          <button
-            className={`${styles.button} ${retroStyles.pixelated}`}
-            onClick={handleStop}
-            disabled={!isListening}
-          >
-            STOP RECORDING
+            {cycleLabel}
           </button>
           <button
             className={`${styles.button} ${retroStyles.pixelated}`}
@@ -292,7 +352,7 @@ export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ language
           <button
             className={`${styles.button} ${retroStyles.pixelated}`}
             onClick={handleSaveNote}
-            disabled={transcription.length === 0}
+            disabled={transcription.length === 0 || isTranscribing}
           >
             SAVE LOG
           </button>

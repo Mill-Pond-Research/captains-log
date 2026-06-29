@@ -1,10 +1,10 @@
-import React from 'react';
 import { render, screen } from '@testing-library/react';
+import { describe, test, expect, vi } from 'vitest';
 import App from './App';
 
 // Mock the TranscriptionPanel component
-jest.mock('./components/TranscriptionPanel', () => ({
-  TranscriptionPanel: () => <div data-testid="transcription-panel">Transcription Panel</div>
+vi.mock('./components/TranscriptionPanel', () => ({
+  TranscriptionPanel: () => <div data-testid="transcription-panel">Transcription Panel</div>,
 }));
 
 describe('App', () => {

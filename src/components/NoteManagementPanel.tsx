@@ -1,23 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import { Note, NoteFilter, NoteSortOptions, NoteManagementService } from '../services/NoteManagementService';
+import { NoteManagementService } from '../services/NoteManagementService';
+import type { Note, NoteFilter, NoteSortOptions } from '../services/NoteManagementService';
+import { AudioStorageService } from '../services/AudioStorageService';
+import { NoteDetailModal } from './NoteDetailModal';
 import styles from './NoteManagementPanel.module.css';
 import retroStyles from '../styles/RetroEffects.module.css';
-import { GlitchEffect } from './GlitchEffect';
 
-interface NoteManagementPanelProps {
-  onNoteSelect?: (note: Note) => void;
+interface NoteManagementPanelProps {}
+
+const audioStorage = new AudioStorageService();
+
+function getNotePreview(note: Note): string {
+  if (note.editedContent != null && note.editedContent.length > 0) {
+    return note.editedContent;
+  }
+  return note.content.map(c => c.text).join(' ');
 }
 
-export const NoteManagementPanel: React.FC<NoteManagementPanelProps> = ({ onNoteSelect }) => {
+function highlightText(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const safe = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${safe})`, 'gi');
+  const parts = text.split(regex);
+  const queryLower = query.toLowerCase();
+  return parts.map((part, i) =>
+    part.toLowerCase() === queryLower ? (
+      <mark key={i} className={styles.highlight}>{part}</mark>
+    ) : (
+      <React.Fragment key={i}>{part}</React.Fragment>
+    ),
+  );
+}
+
+export const NoteManagementPanel: React.FC<NoteManagementPanelProps> = () => {
   const [noteService] = useState(() => new NoteManagementService());
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [detailNote, setDetailNote] = useState<Note | null>(null);
   const [folders, setFolders] = useState<string[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [filter, setFilter] = useState<NoteFilter>({});
   const [sort, setSort] = useState<NoteSortOptions>({ field: 'updatedAt', direction: 'desc' });
   const [newNoteTitle, setNewNoteTitle] = useState('');
-  const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [newTag, setNewTag] = useState('');
   const [newFolder, setNewFolder] = useState('');
 
@@ -33,7 +57,7 @@ export const NoteManagementPanel: React.FC<NoteManagementPanelProps> = ({ onNote
 
   const handleCreateNote = () => {
     if (!newNoteTitle.trim()) return;
-    
+
     const note = noteService.createNote(newNoteTitle, [], [], filter.folder || 'Main Memory');
     setNewNoteTitle('');
     refreshNotes();
@@ -41,9 +65,16 @@ export const NoteManagementPanel: React.FC<NoteManagementPanelProps> = ({ onNote
   };
 
   const handleDeleteNote = (id: string) => {
+    const note = noteService.getNote(id);
+    if (note?.audioIds?.length) {
+      void audioStorage.deleteMany(note.audioIds);
+    }
     noteService.deleteNote(id);
     if (selectedNote?.id === id) {
       setSelectedNote(null);
+    }
+    if (detailNote?.id === id) {
+      setDetailNote(null);
     }
     refreshNotes();
   };
@@ -53,12 +84,15 @@ export const NoteManagementPanel: React.FC<NoteManagementPanelProps> = ({ onNote
     if (selectedNote?.id === note.id) {
       setSelectedNote(updatedNote);
     }
+    if (detailNote?.id === note.id) {
+      setDetailNote(updatedNote);
+    }
     refreshNotes();
   };
 
   const handleAddTag = (note: Note) => {
     if (!newTag.trim()) return;
-    
+
     const updatedTags = [...note.tags, newTag.trim()];
     handleUpdateNote(note, { tags: updatedTags });
     setNewTag('');
@@ -78,7 +112,7 @@ export const NoteManagementPanel: React.FC<NoteManagementPanelProps> = ({ onNote
 
   const handleCreateFolder = () => {
     if (!newFolder.trim()) return;
-    
+
     if (selectedNote) {
       handleMoveToFolder(selectedNote, newFolder);
     }
@@ -90,6 +124,11 @@ export const NoteManagementPanel: React.FC<NoteManagementPanelProps> = ({ onNote
       field,
       direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
     }));
+  };
+
+  const handleNoteClick = (note: Note) => {
+    setSelectedNote(note);
+    setDetailNote(note);
   };
 
   return (
@@ -198,82 +237,97 @@ export const NoteManagementPanel: React.FC<NoteManagementPanelProps> = ({ onNote
             </button>
           </div>
 
-          {notes.map(note => (
-            <div
-              key={note.id}
-              className={`${styles.noteItem} ${selectedNote?.id === note.id ? styles.selected : ''}`}
-              onClick={() => {
-                setSelectedNote(note);
-                onNoteSelect?.(note);
-              }}
-            >
-              <div className={styles.noteHeader}>
-                <h4>{note.title}</h4>
-                <div className={styles.noteActions}>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteNote(note.id);
-                    }}
-                    className={`${styles.deleteButton} ${retroStyles.pixelated}`}
-                  >
-                    DELETE
-                  </button>
-                </div>
-              </div>
-              <div className={styles.noteMeta}>
-                <span className={styles.folder}>{note.folder}</span>
-                <span className={styles.date}>
-                  {new Date(note.createdAt).toLocaleDateString()}
-                </span>
-              </div>
-              <div className={styles.noteTags}>
-                {note.tags.map(tag => (
-                  <span key={tag} className={styles.tag}>
-                    {tag}
+          {notes.map(note => {
+            const preview = getNotePreview(note);
+            const truncatedPreview = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
+            return (
+              <div
+                key={note.id}
+                className={`${styles.noteItem} ${selectedNote?.id === note.id ? styles.selected : ''}`}
+                onClick={() => handleNoteClick(note)}
+              >
+                <div className={styles.noteHeader}>
+                  <h4>{highlightText(note.title, filter.searchText || '')}</h4>
+                  <div className={styles.noteActions}>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleRemoveTag(note, tag);
+                        handleDeleteNote(note.id);
                       }}
-                      className={styles.removeTag}
+                      className={`${styles.deleteButton} ${retroStyles.pixelated}`}
                     >
-                      ×
-                    </button>
-                  </span>
-                ))}
-                {selectedNote?.id === note.id && (
-                  <div className={styles.addTag}>
-                    <input
-                      type="text"
-                      value={newTag}
-                      onChange={e => setNewTag(e.target.value)}
-                      placeholder="Add tag..."
-                      onClick={e => e.stopPropagation()}
-                      onKeyPress={e => {
-                        if (e.key === 'Enter') {
-                          handleAddTag(note);
-                        }
-                      }}
-                      className={retroStyles.retroInput}
-                    />
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAddTag(note);
-                      }}
-                      className={`${styles.button} ${retroStyles.pixelated}`}
-                      disabled={!newTag.trim()}
-                    >
-                      ADD
+                      DELETE
                     </button>
                   </div>
+                </div>
+                {truncatedPreview && (
+                  <p className={styles.notePreview}>
+                    {highlightText(truncatedPreview, filter.searchText || '')}
+                  </p>
                 )}
+                <div className={styles.noteMeta}>
+                  <span className={styles.folder}>{note.folder}</span>
+                  <span className={styles.date}>
+                    {new Date(note.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className={styles.noteTags}>
+                  {note.tags.map(tag => (
+                    <span key={tag} className={styles.tag}>
+                      {tag}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveTag(note, tag);
+                        }}
+                        className={styles.removeTag}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  {selectedNote?.id === note.id && (
+                    <div className={styles.addTag}>
+                      <input
+                        type="text"
+                        value={newTag}
+                        onChange={e => setNewTag(e.target.value)}
+                        placeholder="Add tag..."
+                        onClick={e => e.stopPropagation()}
+                        onKeyPress={e => {
+                          if (e.key === 'Enter') {
+                            handleAddTag(note);
+                          }
+                        }}
+                        className={retroStyles.retroInput}
+                      />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddTag(note);
+                        }}
+                        className={`${styles.button} ${retroStyles.pixelated}`}
+                        disabled={!newTag.trim()}
+                      >
+                        ADD
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
+
+      {detailNote && (
+        <NoteDetailModal
+          note={detailNote}
+          onClose={() => setDetailNote(null)}
+          onUpdate={handleUpdateNote}
+          onDelete={handleDeleteNote}
+        />
+      )}
     </div>
   );
-}; 
+};
